@@ -50,7 +50,8 @@ def inputInt(start: int, end: int) -> int:
 			print("Input is not an integer", file=sys.stderr)
 
 def menu(options: list[str]) -> int:
-	if len(options) < 2:
+	if len(options) < 1:
+		print("Error: no options available", file=sys.stderr)
 		return 0
 	for i, option in enumerate(options):
 		print("\t[{:d}]: {:s}".format(i + 1, option))
@@ -129,6 +130,13 @@ def actionCreate(domain: domainType):
 	domain.snapshotCreateXML(xmlStr, flags=flags)
 	print("Successfully created snapshot \"{:s}\" for domain \"{:s}\"".format(xmlName.text, domain.name()))
 
+def actionDelete(domain: domainType):
+	snapshots: list[snapshotType] = domain.listAllSnapshots()
+	print()
+	print("Select snapshot to delete: ")
+	snapshot: snapshotType = snapshots[menu([snapshot.getName() for snapshot in snapshots])]
+	snapshot.delete()
+
 def action2fun(conn: connType, action: Action) -> Callable[[domainType], None]:
 	match action:
 		case Action.LIST:
@@ -138,7 +146,7 @@ def action2fun(conn: connType, action: Action) -> Callable[[domainType], None]:
 		case Action.REVERT:
 			return lambda x: None
 		case Action.DELETE:
-			return lambda x: None
+			return actionDelete
 		case Action.EXIT:
 			conn.close()
 			exit(0)
