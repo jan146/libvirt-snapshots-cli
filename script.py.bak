@@ -2,8 +2,9 @@
 import sys
 import os
 import libvirt
-from typing import Callable, TypeAlias
+from typing import TypeAlias
 from enum import Enum
+from xml.etree import ElementTree as ET
 
 libvirtURI: str = "qemu:///system"
 connType: TypeAlias = libvirt.virConnect
@@ -69,34 +70,44 @@ def findRoot(snapshots: list[snapshotType]) -> snapshotType|None:
 			return snapshot
 	return None
 
-def actionList(domain: domainType):
-	for (flags, typeStr) in [(libvirt.VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL, "External"), (libvirt.VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL, "Internal")]:
-		snapshots: list[snapshotType] = domain.listAllSnapshots(flags=flags)
-		root: snapshotType|None = findRoot(snapshots)
-		print()
-		print("{:s}: ".format(typeStr))
-		print(" Current |    Name    |   Parent   ")
-		print("---------+------------+------------")
-		for snapshot in snapshots:
-			current: str = "*" if snapshot.isCurrent() else " "
-			name: str = snapshot.getName()
-			parent: str = snapshot.getParent().getName() if snapshot is not root else "    -     "
-			print("    {:1s}    | {:10s} | {:10s} ".format(current, name, parent))
-
-def action2fun(conn: connType, action: Action) -> Callable[[domainType], None]:
+def executeAction(conn: connType, domain: domainType, action: Action):
 	match action:
 		case Action.LIST:
-			return actionList
+			for (flags, typeStr) in [(libvirt.VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL, "External"), (libvirt.VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL, "Internal")]:
+				snapshots: list[snapshotType] = domain.listAllSnapshots(flags=flags)
+				root: snapshotType|None = findRoot(snapshots)
+				print()
+				print("{:s}: ".format(typeStr))
+				print(" Current |    Name    |   Parent   ")
+				print("---------+------------+------------")
+				for snapshot in snapshots:
+					current: str = "*" if snapshot.isCurrent() else " "
+					name: str = snapshot.getName()
+					parent: str = snapshot.getParent().getName() if snapshot is not root else "    -     "
+					print("    {:1s}    | {:10s} | {:10s} ".format(current, name, parent))
 		case Action.CREATE:
-			return lambda x: None
+			print()
+			print("Select snapshot type: ")
+			internal: bool = bool(menu(["External (recommended)", "Internal"]) - 1)
+			xmlRoot = ET.Element("domainsnapshot")
+			xmlName = ET.SubElement(xmlRoot, "name")
+			print()
+			xmlName.text = input("Enter snapshot name: ")
+			print()
+			descText = input("Enter snapshot description (optional): ")
+			if len(descText) > 0:
+				xmlDesc = ET.SubElement(xmlRoot, "description")
+				xmlDesc.text = descText
+			xmlStr = ET.tostring(xmlRoot).decode()
+			print(xmlStr)
+			# domain.snapshotCreateXML(, VIR_DOMAIN_SNAPSHOT_CREATE)
+			pass
 		case Action.REVERT:
-			return lambda x: None
+			pass
 		case Action.DELETE:
-			return lambda x: None
+			pass
 		case Action.EXIT:
-			conn.close()
 			exit(0)
-			return lambda x: None
 
 def menuDomain(conn: connType) -> domainType:
 	domains: list[domainType] = getDomains(conn)
@@ -110,10 +121,9 @@ def main():
 	checkRoot()
 	conn: connType = libvirt.open(libvirtURI)
 	checkDomains(conn)
-	while True:
-		domain: domainType = menuDomain(conn)
-		action: Action = menuAction(conn)
-		actionFun: Callable[[domainType], None] = action2fun(conn, action)
-		actionFun(domain)
+	domain: domainType = menuDomain(conn)
+	action: Action = menuAction(conn)
+	executeAction(conn, domain, action)
+	conn.close()
 
 main()
