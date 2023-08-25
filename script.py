@@ -4,6 +4,7 @@ import os
 import libvirt
 from typing import Callable, TypeAlias
 from enum import Enum
+from xml.etree import ElementTree as ET
 
 libvirtURI: str = "qemu:///system"
 connType: TypeAlias = libvirt.virConnect
@@ -83,12 +84,37 @@ def actionList(domain: domainType):
 			parent: str = snapshot.getParent().getName() if snapshot is not root else "    -     "
 			print("    {:1s}    | {:10s} | {:10s} ".format(current, name, parent))
 
+def actionCreate(domain: domainType):
+
+	# root
+	print()
+	print("Select snapshot type: ")
+	internal: bool = bool(menu(["External (recommended)", "Internal"]) - 1)
+	xmlRoot = ET.Element("domainsnapshot")
+	
+	# name
+	xmlName = ET.SubElement(xmlRoot, "name")
+	print()
+	xmlName.text = input("Enter snapshot name: ")
+
+	# desc
+	print()
+	descText = input("Enter snapshot description (optional): ")
+	if len(descText) > 0:
+		xmlDesc = ET.SubElement(xmlRoot, "description")
+		xmlDesc.text = descText
+
+	flags: int = 0
+	xmlStr = ET.tostring(xmlRoot).decode()
+	domain.snapshotCreateXML(xmlStr, flags=flags)
+	print("Successfully created snapshot \"{:s}\" for domain \"{:s}\"".format(xmlName.text, domain.name()))
+
 def action2fun(conn: connType, action: Action) -> Callable[[domainType], None]:
 	match action:
 		case Action.LIST:
 			return actionList
 		case Action.CREATE:
-			return lambda x: None
+			return actionCreate
 		case Action.REVERT:
 			return lambda x: None
 		case Action.DELETE:
