@@ -51,7 +51,7 @@ def inputInt(start: int, end: int) -> int:
 
 def menu(options: list[str]) -> int:
 	if len(options) < 2:
-		return 0
+		return 1
 	for i, option in enumerate(options):
 		print("\t[{:d}]: {:s}".format(i + 1, option))
 	return inputInt(start=1, end=len(options))
@@ -84,6 +84,19 @@ def actionList(domain: domainType):
 			parent: str = snapshot.getParent().getName() if snapshot is not root else "    -     "
 			print("    {:1s}    | {:10s} | {:10s} ".format(current, name, parent))
 
+def diskSelection(domain: domainType) -> ET.Element:
+	tree = ET.fromstring(domain.XMLDesc(0))
+	blockDevices = []
+	for target in tree.findall("devices/disk"):
+		blockDevice: str = ""
+		blockDevice += str(target.findall("source")[0].get("file")) + ", "
+		blockDevice += str(target.findall("driver")[0].get("type")) + ", "
+		blockDevice += str(target.findall("target")[0].get("dev"))
+		blockDevices.append(blockDevice)
+	diskIndex = menu(blockDevices)
+	diskXml: ET.Element = tree.findall("devices/disk")[diskIndex - 1]
+	return diskXml
+
 def actionCreate(domain: domainType):
 
 	# root
@@ -95,7 +108,8 @@ def actionCreate(domain: domainType):
 	# name
 	xmlName = ET.SubElement(xmlRoot, "name")
 	print()
-	xmlName.text = input("Enter snapshot name: ")
+	while xmlName.text is None or len(xmlName.text) < 1:
+		xmlName.text = input("Enter snapshot name: ")
 
 	# desc
 	print()
@@ -105,7 +119,13 @@ def actionCreate(domain: domainType):
 		xmlDesc.text = descText
 
 	flags: int = 0
-	xmlStr = ET.tostring(xmlRoot).decode()
+	if not internal:
+		flags |= libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY
+		disk: ET.Element = diskSelection(domain)
+		xmlDisks: ET.Element = ET.SubElement(xmlRoot, "disks")
+		xmlDisk: ET.Element = ET.SubElement(xmlDisks, "disk", name=str(disk.findall("target")[0].get("dev")), snapshot="external")
+
+	xmlStr: str = ET.tostring(xmlRoot).decode()
 	domain.snapshotCreateXML(xmlStr, flags=flags)
 	print("Successfully created snapshot \"{:s}\" for domain \"{:s}\"".format(xmlName.text, domain.name()))
 
