@@ -8,6 +8,7 @@ from enum import Enum
 libvirtURI: str = "qemu:///system"
 connType: TypeAlias = libvirt.virConnect
 domainType: TypeAlias = libvirt.virDomain
+snapshotType: TypeAlias = libvirt.virDomainSnapshot
 
 class Action(Enum):
 	LIST	= 1
@@ -59,10 +60,28 @@ def menuAction(conn: connType) -> Action:
 	print("Select an action:")
 	return Action(menu(list(action2str.values())))
 
+def findRoot(snapshots: list[snapshotType]) -> snapshotType|None:
+	children: set[libvirt.virDomainSnapshot] = set()
+	for snapshot in snapshots:
+		children.union(snapshot.listAllChildren())
+	for snapshot in snapshots:
+		if snapshot not in children:
+			return snapshot
+	return None
+
 def executeAction(conn: connType, domain: domainType, action: Action):
 	match action:
 		case Action.LIST:
-			pass
+			snapshots: list[snapshotType] = domain.listAllSnapshots()
+			root: snapshotType|None = findRoot(snapshots)
+			print()
+			print(" Current |    Name    |   Parent   ")
+			print("---------+------------+------------")
+			for snapshot in snapshots:
+				current: str = "*" if snapshot.isCurrent() else " "
+				name: str = snapshot.getName()
+				parent: str = snapshot.getParent().getName() if snapshot is not root else "    -     "
+				print("    {:1s}    | {:10s} | {:10s} ".format(current, name, parent))
 		case Action.CREATE:
 			pass
 		case Action.REVERT:
