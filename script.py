@@ -54,8 +54,10 @@ def menu(options: list[str]) -> int:
 		print("\t[{:d}]: {:s}".format(i + 1, option))
 	return inputInt(start=1, end=len(options))
 
-def menuMain(conn: connType) -> int:
-	return menu(list(action2str.values()))
+def menuAction(conn: connType) -> Action:
+	print()
+	print("Select an action:")
+	return Action(menu(list(action2str.values())))
 
 def executeAction(conn: connType, domain: domainType, action: Action):
 	match action:
@@ -83,8 +85,7 @@ def main():
 	conn: connType = libvirt.open(libvirtURI)
 	checkDomains(conn)
 	domain: domainType = menuDomain(conn)
-	print("Selected: {:s}".format(domain.name()))
-	action: Action = Action(menuMain(conn))
+	action: Action = menuAction(conn)
 	executeAction(conn, domain, action)
 	conn.close()
 
