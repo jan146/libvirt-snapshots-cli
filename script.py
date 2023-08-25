@@ -28,6 +28,10 @@ def checkRoot():
 	if os.geteuid() != 0:
 		print("Warning: non-root user might not have access to the libvirt API", file=sys.stderr)
 
+def checkDomains(conn: connType):
+	if len(getDomains(conn)) < 1:
+		print("Error: no domains found", file=sys.stderr)
+
 def getDomains(conn: connType) -> list[domainType]:
 	return conn.listAllDomains(0)
 
@@ -46,7 +50,6 @@ def inputInt(start: int, end: int) -> int:
 def menu(options: list[str]) -> int:
 	if len(options) < 2:
 		return 0
-	print()
 	for i, option in enumerate(options):
 		print("\t[{:d}]: {:s}".format(i + 1, option))
 	return inputInt(start=1, end=len(options))
@@ -54,7 +57,7 @@ def menu(options: list[str]) -> int:
 def menuMain(conn: connType) -> int:
 	return menu(list(action2str.values()))
 
-def executeAction(action: Action):
+def executeAction(conn: connType, domain: domainType, action: Action):
 	match action:
 		case Action.LIST:
 			pass
@@ -67,11 +70,22 @@ def executeAction(action: Action):
 		case Action.EXIT:
 			exit(0)
 
+def menuDomain(conn: connType) -> domainType:
+	domains: list[domainType] = getDomains(conn)
+	print()
+	print("Select a domain:")
+	domainNames: list[str] = [domain.name() for domain in domains]
+	domain: domainType = domains[menu(domainNames) - 1]
+	return domain
+
 def main():
 	checkRoot()
 	conn: connType = libvirt.open(libvirtURI)
+	checkDomains(conn)
+	domain: domainType = menuDomain(conn)
+	print("Selected: {:s}".format(domain.name()))
 	action: Action = Action(menuMain(conn))
-	executeAction(action)
+	executeAction(conn, domain, action)
 	conn.close()
 
 main()
