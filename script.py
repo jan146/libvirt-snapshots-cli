@@ -6,6 +6,7 @@ from typing import Callable, TypeAlias
 from enum import Enum
 from xml.etree import ElementTree as ET
 
+snapshotDirectory: str = "/var/lib/libvirt/images"
 libvirtURI: str = "qemu:///system"
 connType: TypeAlias = libvirt.virConnect
 domainType: TypeAlias = libvirt.virDomain
@@ -130,12 +131,60 @@ def actionCreate(domain: domainType):
 	domain.snapshotCreateXML(xmlStr, flags=flags)
 	print("Successfully created snapshot \"{:s}\" for domain \"{:s}\"".format(xmlName.text, domain.name()))
 
+def menuSnapshots(domain: domainType, snapshots: list[snapshotType] = []) -> snapshotType|None:
+	if len(snapshots) < 1:
+		snapshots = domain.listAllSnapshots()
+	if len(snapshots) < 1:
+		print("Error: no snapshots found for selected domain")
+		return None
+	snapshot: snapshotType = snapshots[menu([snapshot.getName() for snapshot in snapshots])]
+	return snapshot
+
 def actionDelete(domain: domainType):
-	snapshots: list[snapshotType] = domain.listAllSnapshots()
 	print()
 	print("Select snapshot to delete: ")
-	snapshot: snapshotType = snapshots[menu([snapshot.getName() for snapshot in snapshots])]
-	snapshot.delete()
+	snapshot: snapshotType|None = menuSnapshots(domain)
+	if snapshot is not None:
+		snapshot.delete()
+
+def actionRevert(domain: domainType):
+	print()
+	print("Select snapshot to revert to: ")
+	snapshotsExternal: set[snapshotType] = set(domain.listAllSnapshots(libvirt.VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL))
+	snapshotsInternal: set[snapshotType] = set(domain.listAllSnapshots(libvirt.VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL))
+	snapshots: list[snapshotType] = list(snapshotsExternal.union(snapshotsInternal))
+	snapshot: snapshotType|None = menuSnapshots(domain, snapshots)
+	if snapshot is not None:
+		if snapshot in snapshotsExternal:
+			
+			xmlDisk: ET.Element = diskSelection(domain)
+			src: ET.Element|None = xmlDisk.find("source")
+
+			if src is not None:
+				path: str|None = src.get("file")
+				if path is not None:
+					newPath: str = "{:s}/{:s}.{:s}".format(snapshotDirectory, domain.name(), snapshot.getName())
+					if os.path.isfile(newPath):
+						src.set("file", newPath)
+						print("Successfully reverted domain \"{:s}\" to snapshot \"{:s}\"".format(domain.name(), snapshot.getName()))
+					else:
+						print("Error: could not find snapshot disk file", file=sys.stderr)
+						print("Full path: " + newPath, file=sys.stderr)
+						return
+				else:
+					print("Error: could not get disk source path", file=sys.stderr)
+					return
+			else:
+				print("Error: could not find disk source", file=sys.stderr)
+				return
+
+			xmlStr: str = ET.tostring(xmlDisk).decode()
+			domain.updateDeviceFlags(xmlStr)
+
+		elif snapshot in snapshotsInternal:
+			domain.revertToSnapshot(snapshot)
+		else:
+			print("Error: failed to determine snapshot type", file=sys.stderr)
 
 def action2fun(conn: connType, action: Action) -> Callable[[domainType], None]:
 	match action:
@@ -144,7 +193,7 @@ def action2fun(conn: connType, action: Action) -> Callable[[domainType], None]:
 		case Action.CREATE:
 			return actionCreate
 		case Action.REVERT:
-			return lambda x: None
+			return actionRevert
 		case Action.DELETE:
 			return actionDelete
 		case Action.EXIT:
