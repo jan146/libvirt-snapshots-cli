@@ -12,11 +12,11 @@ domainType: TypeAlias = libvirt.virDomain
 snapshotType: TypeAlias = libvirt.virDomainSnapshot
 
 class Action(Enum):
-	LIST	= 1
-	CREATE	= 2
-	REVERT	= 3
-	DELETE	= 4
-	EXIT	= 5
+	LIST	= 0
+	CREATE	= 1
+	REVERT	= 2
+	DELETE	= 3
+	EXIT	= 4
 
 action2str: dict[Action, str] = {
 	Action.LIST:	"List snapshots",
@@ -51,10 +51,10 @@ def inputInt(start: int, end: int) -> int:
 
 def menu(options: list[str]) -> int:
 	if len(options) < 2:
-		return 1
+		return 0
 	for i, option in enumerate(options):
 		print("\t[{:d}]: {:s}".format(i + 1, option))
-	return inputInt(start=1, end=len(options))
+	return (inputInt(start=1, end=len(options)) - 1)
 
 def menuAction(conn: connType) -> Action:
 	print()
@@ -94,7 +94,7 @@ def diskSelection(domain: domainType) -> ET.Element:
 		blockDevice += str(target.findall("target")[0].get("dev"))
 		blockDevices.append(blockDevice)
 	diskIndex = menu(blockDevices)
-	diskXml: ET.Element = tree.findall("devices/disk")[diskIndex - 1]
+	diskXml: ET.Element = tree.findall("devices/disk")[diskIndex]
 	return diskXml
 
 def actionCreate(domain: domainType):
@@ -102,7 +102,7 @@ def actionCreate(domain: domainType):
 	# root
 	print()
 	print("Select snapshot type: ")
-	internal: bool = bool(menu(["External (recommended)", "Internal"]) - 1)
+	internal: bool = bool(menu(["External (recommended)", "Internal"]))
 	xmlRoot = ET.Element("domainsnapshot")
 	
 	# name
@@ -149,7 +149,7 @@ def menuDomain(conn: connType) -> domainType:
 	print()
 	print("Select a domain:")
 	domainNames: list[str] = [domain.name() for domain in domains]
-	domain: domainType = domains[menu(domainNames) - 1]
+	domain: domainType = domains[menu(domainNames)]
 	return domain
 
 def main():
