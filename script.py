@@ -72,16 +72,18 @@ def findRoot(snapshots: list[snapshotType]) -> snapshotType|None:
 def executeAction(conn: connType, domain: domainType, action: Action):
 	match action:
 		case Action.LIST:
-			snapshots: list[snapshotType] = domain.listAllSnapshots()
-			root: snapshotType|None = findRoot(snapshots)
-			print()
-			print(" Current |    Name    |   Parent   ")
-			print("---------+------------+------------")
-			for snapshot in snapshots:
-				current: str = "*" if snapshot.isCurrent() else " "
-				name: str = snapshot.getName()
-				parent: str = snapshot.getParent().getName() if snapshot is not root else "    -     "
-				print("    {:1s}    | {:10s} | {:10s} ".format(current, name, parent))
+			for (flags, typeStr) in [(libvirt.VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL, "External"), (libvirt.VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL, "Internal")]:
+				snapshots: list[snapshotType] = domain.listAllSnapshots(flags=flags)
+				root: snapshotType|None = findRoot(snapshots)
+				print()
+				print("{:s}: ".format(typeStr))
+				print(" Current |    Name    |   Parent   ")
+				print("---------+------------+------------")
+				for snapshot in snapshots:
+					current: str = "*" if snapshot.isCurrent() else " "
+					name: str = snapshot.getName()
+					parent: str = snapshot.getParent().getName() if snapshot is not root else "    -     "
+					print("    {:1s}    | {:10s} | {:10s} ".format(current, name, parent))
 		case Action.CREATE:
 			pass
 		case Action.REVERT:
