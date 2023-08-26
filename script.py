@@ -27,6 +27,10 @@ action2str: dict[Action, str] = {
 	Action.EXIT:	"Exit",
 }
 
+class SnapshotChoice(Enum):
+	NO_SNAPSHOTS_FOUND	= 0
+	REVERT_TO_ORIGINAL	= 1
+
 def checkRoot():
 	if os.geteuid() != 0:
 		print("Warning: non-root user might not have access to the libvirt API", file=sys.stderr)
@@ -143,21 +147,54 @@ def actionCreate(domain: domainType):
 	domain.snapshotCreateXML(xmlStr, flags=flags)
 	print("Successfully created snapshot \"{:s}\" for domain \"{:s}\"".format(xmlName.text, domain.name()))
 
-def menuSnapshots(domain: domainType, snapshots: list[snapshotType] = []) -> snapshotType|None:
+def menuSnapshots(domain: domainType, snapshots: list[snapshotType] = []) -> snapshotType|SnapshotChoice:
 	if len(snapshots) < 1:
 		snapshots = domain.listAllSnapshots()
 	if len(snapshots) < 1:
-		print("Error: no snapshots found for selected domain")
-		return None
-	snapshot: snapshotType = snapshots[menu([snapshot.getName() for snapshot in snapshots])]
-	return snapshot
+		print("Error: no snapshots found for selected domain", file=sys.stderr)
+		return SnapshotChoice.NO_SNAPSHOTS_FOUND
+	snapshotNames: list[str] = [snapshot.getName() for snapshot in snapshots] + ["Original image (external only)"]
+	userChoice: int = menu(snapshotNames)
+	snapshot: snapshotType
+	if userChoice == len(snapshots):
+		return SnapshotChoice.REVERT_TO_ORIGINAL
+	else:
+		return snapshots[userChoice]
 
 def actionDelete(domain: domainType):
 	print()
 	print("Select snapshot to delete: ")
-	snapshot: snapshotType|None = menuSnapshots(domain)
-	if snapshot is not None:
-		snapshot.delete()
+	snapshot: snapshotType|SnapshotChoice = menuSnapshots(domain)
+	match snapshot:
+		case SnapshotChoice.NO_SNAPSHOTS_FOUND | SnapshotChoice.REVERT_TO_ORIGINAL:
+			pass
+		case _:
+			snapshot.delete()
+
+def actionRevertExternal(domain: domainType, snapshotName: str):
+	xmlDisk: ET.Element = diskSelection(domain)
+	src: ET.Element|None = xmlDisk.find("source")
+
+	if src is not None:
+		path: str|None = src.get("file")
+		if path is not None:
+			newPath: str = "{:s}/{:s}.{:s}".format(snapshotDirectory, domain.name(), snapshotName)
+			if os.path.isfile(newPath):
+				src.set("file", newPath)
+				print("Successfully reverted domain \"{:s}\" to snapshot \"{:s}\"".format(domain.name(), snapshotName))
+			else:
+				print("Error: could not find snapshot disk file", file=sys.stderr)
+				print("Full path: " + newPath, file=sys.stderr)
+				return
+		else:
+			print("Error: could not get disk source path", file=sys.stderr)
+			return
+	else:
+		print("Error: could not find disk source", file=sys.stderr)
+		return
+
+	xmlStr: str = ET.tostring(xmlDisk).decode()
+	domain.updateDeviceFlags(xmlStr)
 
 def actionRevert(domain: domainType):
 	print()
@@ -165,38 +202,20 @@ def actionRevert(domain: domainType):
 	snapshotsExternal: set[snapshotType] = set(domain.listAllSnapshots(libvirt.VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL))
 	snapshotsInternal: set[snapshotType] = set(domain.listAllSnapshots(libvirt.VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL))
 	snapshots: list[snapshotType] = list(snapshotsExternal.union(snapshotsInternal))
-	snapshot: snapshotType|None = menuSnapshots(domain, snapshots)
-	if snapshot is not None:
-		if snapshot in snapshotsExternal:
-			
-			xmlDisk: ET.Element = diskSelection(domain)
-			src: ET.Element|None = xmlDisk.find("source")
-
-			if src is not None:
-				path: str|None = src.get("file")
-				if path is not None:
-					newPath: str = "{:s}/{:s}.{:s}".format(snapshotDirectory, domain.name(), snapshot.getName())
-					if os.path.isfile(newPath):
-						src.set("file", newPath)
-						print("Successfully reverted domain \"{:s}\" to snapshot \"{:s}\"".format(domain.name(), snapshot.getName()))
-					else:
-						print("Error: could not find snapshot disk file", file=sys.stderr)
-						print("Full path: " + newPath, file=sys.stderr)
-						return
+	snapshot: snapshotType|SnapshotChoice = menuSnapshots(domain, snapshots)
+	match snapshot:
+		case SnapshotChoice.NO_SNAPSHOTS_FOUND:
+			pass
+		case SnapshotChoice.REVERT_TO_ORIGINAL:
+			actionRevertExternal(domain, snapshotName="qcow2")
+		case _:
+			if snapshot is not None:	# TODO
+				if snapshot in snapshotsExternal:
+					actionRevertExternal(domain, snapshotName=snapshot.getName())
+				elif snapshot in snapshotsInternal:
+					domain.revertToSnapshot(snapshot)
 				else:
-					print("Error: could not get disk source path", file=sys.stderr)
-					return
-			else:
-				print("Error: could not find disk source", file=sys.stderr)
-				return
-
-			xmlStr: str = ET.tostring(xmlDisk).decode()
-			domain.updateDeviceFlags(xmlStr)
-
-		elif snapshot in snapshotsInternal:
-			domain.revertToSnapshot(snapshot)
-		else:
-			print("Error: failed to determine snapshot type", file=sys.stderr)
+					print("Error: failed to determine snapshot type", file=sys.stderr)
 
 def action2fun(conn: connType, action: Action) -> Callable[[domainType], None]:
 	match action:
