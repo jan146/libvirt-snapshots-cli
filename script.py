@@ -36,7 +36,7 @@ def checkRoot():
 		print("Warning: non-root user might not have access to the libvirt API", file=sys.stderr)
 
 def checkDomains(conn: connType):
-	if len(getDomains(conn)) < 1:
+	if len(conn.listAllDomains()) < 1:
 		print("Error: no domains found", file=sys.stderr)
 
 def userConfirm(msg: str, default: bool) -> bool:
@@ -50,9 +50,6 @@ def userConfirm(msg: str, default: bool) -> bool:
 				return True
 			if userInput[0].lower() == "n":
 				return False
-			
-def getDomains(conn: connType) -> list[domainType]:
-	return conn.listAllDomains(0)
 
 def inputInt(start: int, end: int) -> int:
 	while True:
@@ -102,7 +99,7 @@ def actionList(domain: domainType):
 			parent: str = snapshot.getParent().getName() if snapshot is not root else "    -     "
 			print("    {:1s}    | {:10s} | {:10s} ".format(current, name, parent))
 
-def diskSelection(domain: domainType) -> ET.Element:
+def menuDisk(domain: domainType) -> ET.Element:
 	tree = ET.fromstring(domain.XMLDesc(0))
 	blockDevices = []
 	for target in tree.findall("devices/disk"):
@@ -139,7 +136,7 @@ def actionCreate(domain: domainType):
 	flags: int = 0
 	if not internal:
 		flags |= libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY
-		disk: ET.Element = diskSelection(domain)
+		disk: ET.Element = menuDisk(domain)
 		xmlDisks: ET.Element = ET.SubElement(xmlRoot, "disks")
 		xmlDisk: ET.Element = ET.SubElement(xmlDisks, "disk", name=str(disk.findall("target")[0].get("dev")), snapshot="external")
 
@@ -172,7 +169,7 @@ def actionDelete(domain: domainType):
 			snapshot.delete()
 
 def actionRevertExternal(domain: domainType, snapshotName: str):
-	xmlDisk: ET.Element = diskSelection(domain)
+	xmlDisk: ET.Element = menuDisk(domain)
 	src: ET.Element|None = xmlDisk.find("source")
 
 	if src is not None:
@@ -233,7 +230,7 @@ def action2fun(conn: connType, action: Action) -> Callable[[domainType], None]:
 			return lambda x: None
 
 def menuDomain(conn: connType) -> domainType|None:
-	domains: list[domainType] = getDomains(conn)
+	domains: list[domainType] = conn.listAllDomains()
 	print()
 	print("Select a domain:")
 	domainNames: list[str] = [domain.name() for domain in domains]
