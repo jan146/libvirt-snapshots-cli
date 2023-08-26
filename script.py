@@ -227,13 +227,12 @@ def actionRevert(domain: domainType):
 		case SnapshotChoice.REVERT_TO_ORIGINAL:
 			actionRevertExternal(domain, snapshotName="qcow2")
 		case _:
-			if snapshot is not None:	# TODO
-				if snapshot in snapshotsExternal:
-					actionRevertExternal(domain, snapshotName=snapshot.getName())
-				elif snapshot in snapshotsInternal:
-					domain.revertToSnapshot(snapshot)
-				else:
-					print("Error: failed to determine snapshot type", file=sys.stderr)
+			if snapshot in snapshotsExternal:
+				actionRevertExternal(domain, snapshotName=snapshot.getName())
+			elif snapshot in snapshotsInternal:
+				domain.revertToSnapshot(snapshot)
+			else:
+				print("Error: failed to determine snapshot type", file=sys.stderr)
 
 def action2fun(conn: connType, action: Action) -> Callable[[domainType], None]:
 	match action:
