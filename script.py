@@ -35,6 +35,18 @@ def checkDomains(conn: connType):
 	if len(getDomains(conn)) < 1:
 		print("Error: no domains found", file=sys.stderr)
 
+def userConfirm(msg: str, default: bool) -> bool:
+	while True:
+		print()
+		userInput: str = input(msg)
+		if len(userInput) < 1:
+			return default
+		elif len(userInput) == 1:
+			if userInput[0].lower() == "y":
+				return True
+			if userInput[0].lower() == "n":
+				return False
+			
 def getDomains(conn: connType) -> list[domainType]:
 	return conn.listAllDomains(0)
 
@@ -201,12 +213,16 @@ def action2fun(conn: connType, action: Action) -> Callable[[domainType], None]:
 			exit(0)
 			return lambda x: None
 
-def menuDomain(conn: connType) -> domainType:
+def menuDomain(conn: connType) -> domainType|None:
 	domains: list[domainType] = getDomains(conn)
 	print()
 	print("Select a domain:")
 	domainNames: list[str] = [domain.name() for domain in domains]
 	domain: domainType = domains[menu(domainNames)]
+	if domain.isActive():
+		print("WARNING: domain is currently active", file=sys.stderr)
+		if not userConfirm(msg="Continue anyways? [y/N]: ", default=False):
+			return None
 	return domain
 
 def main():
@@ -214,7 +230,9 @@ def main():
 	conn: connType = libvirt.open(libvirtURI)
 	checkDomains(conn)
 	while True:
-		domain: domainType = menuDomain(conn)
+		domain: domainType|None = menuDomain(conn)
+		if domain is None:
+			continue
 		action: Action = menuAction(conn)
 		actionFun: Callable[[domainType], None] = action2fun(conn, action)
 		actionFun(domain)
