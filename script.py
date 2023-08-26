@@ -76,6 +76,45 @@ def menuAction(conn: connType) -> Action:
 	print("Select an action:")
 	return Action(menu(list(action2str.values())))
 
+def menuDomain(conn: connType) -> domainType|None:
+	domains: list[domainType] = conn.listAllDomains()
+	print()
+	print("Select a domain:")
+	domainNames: list[str] = [domain.name() for domain in domains]
+	domain: domainType = domains[menu(domainNames)]
+	if domain.isActive():
+		print("WARNING: domain is currently active", file=sys.stderr)
+		if not userConfirm(msg="Continue anyways? [y/N]: ", default=False):
+			return None
+	return domain
+
+def menuDisk(domain: domainType) -> ET.Element:
+	tree = ET.fromstring(domain.XMLDesc(0))
+	blockDevices = []
+	for target in tree.findall("devices/disk"):
+		blockDevice: str = ""
+		blockDevice += str(target.findall("source")[0].get("file")) + ", "
+		blockDevice += str(target.findall("driver")[0].get("type")) + ", "
+		blockDevice += str(target.findall("target")[0].get("dev"))
+		blockDevices.append(blockDevice)
+	diskIndex = menu(blockDevices)
+	diskXml: ET.Element = tree.findall("devices/disk")[diskIndex]
+	return diskXml
+
+def menuSnapshots(domain: domainType, snapshots: list[snapshotType] = []) -> snapshotType|SnapshotChoice:
+	if len(snapshots) < 1:
+		snapshots = domain.listAllSnapshots()
+	if len(snapshots) < 1:
+		print("Error: no snapshots found for selected domain", file=sys.stderr)
+		return SnapshotChoice.NO_SNAPSHOTS_FOUND
+	snapshotNames: list[str] = [snapshot.getName() for snapshot in snapshots] + ["Original image (external only)"]
+	userChoice: int = menu(snapshotNames)
+	snapshot: snapshotType
+	if userChoice == len(snapshots):
+		return SnapshotChoice.REVERT_TO_ORIGINAL
+	else:
+		return snapshots[userChoice]
+
 def findRoot(snapshots: list[snapshotType]) -> snapshotType|None:
 	children: set[libvirt.virDomainSnapshot] = set()
 	for snapshot in snapshots:
@@ -98,19 +137,6 @@ def actionList(domain: domainType):
 			name: str = snapshot.getName()
 			parent: str = snapshot.getParent().getName() if snapshot is not root else "    -     "
 			print("    {:1s}    | {:10s} | {:10s} ".format(current, name, parent))
-
-def menuDisk(domain: domainType) -> ET.Element:
-	tree = ET.fromstring(domain.XMLDesc(0))
-	blockDevices = []
-	for target in tree.findall("devices/disk"):
-		blockDevice: str = ""
-		blockDevice += str(target.findall("source")[0].get("file")) + ", "
-		blockDevice += str(target.findall("driver")[0].get("type")) + ", "
-		blockDevice += str(target.findall("target")[0].get("dev"))
-		blockDevices.append(blockDevice)
-	diskIndex = menu(blockDevices)
-	diskXml: ET.Element = tree.findall("devices/disk")[diskIndex]
-	return diskXml
 
 def actionCreate(domain: domainType):
 
@@ -144,29 +170,24 @@ def actionCreate(domain: domainType):
 	domain.snapshotCreateXML(xmlStr, flags=flags)
 	print("Successfully created snapshot \"{:s}\" for domain \"{:s}\"".format(xmlName.text, domain.name()))
 
-def menuSnapshots(domain: domainType, snapshots: list[snapshotType] = []) -> snapshotType|SnapshotChoice:
-	if len(snapshots) < 1:
-		snapshots = domain.listAllSnapshots()
-	if len(snapshots) < 1:
-		print("Error: no snapshots found for selected domain", file=sys.stderr)
-		return SnapshotChoice.NO_SNAPSHOTS_FOUND
-	snapshotNames: list[str] = [snapshot.getName() for snapshot in snapshots] + ["Original image (external only)"]
-	userChoice: int = menu(snapshotNames)
-	snapshot: snapshotType
-	if userChoice == len(snapshots):
-		return SnapshotChoice.REVERT_TO_ORIGINAL
-	else:
-		return snapshots[userChoice]
-
 def actionDelete(domain: domainType):
 	print()
 	print("Select snapshot to delete: ")
-	snapshot: snapshotType|SnapshotChoice = menuSnapshots(domain)
+	snapshotsExternal: set[snapshotType] = set(domain.listAllSnapshots(libvirt.VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL))
+	snapshotsInternal: set[snapshotType] = set(domain.listAllSnapshots(libvirt.VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL))
+	snapshots: list[snapshotType] = list(snapshotsExternal.union(snapshotsInternal))
+	snapshot: snapshotType|SnapshotChoice = menuSnapshots(domain, snapshots=snapshots)
 	match snapshot:
 		case SnapshotChoice.NO_SNAPSHOTS_FOUND | SnapshotChoice.REVERT_TO_ORIGINAL:
 			pass
 		case _:
-			snapshot.delete()
+			if snapshot in snapshotsExternal:
+				snapshot.delete(libvirt.VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY)
+				os.remove("{:s}/{:s}.{:s}".format(snapshotDirectory, domain.name(), snapshot.getName()))
+			elif snapshot in snapshotsInternal:
+				snapshot.delete()
+			else:
+				print("Error: failed to determine snapshot type", file=sys.stderr)
 
 def actionRevertExternal(domain: domainType, snapshotName: str):
 	xmlDisk: ET.Element = menuDisk(domain)
@@ -228,18 +249,6 @@ def action2fun(conn: connType, action: Action) -> Callable[[domainType], None]:
 			conn.close()
 			exit(0)
 			return lambda x: None
-
-def menuDomain(conn: connType) -> domainType|None:
-	domains: list[domainType] = conn.listAllDomains()
-	print()
-	print("Select a domain:")
-	domainNames: list[str] = [domain.name() for domain in domains]
-	domain: domainType = domains[menu(domainNames)]
-	if domain.isActive():
-		print("WARNING: domain is currently active", file=sys.stderr)
-		if not userConfirm(msg="Continue anyways? [y/N]: ", default=False):
-			return None
-	return domain
 
 def main():
 	checkRoot()
