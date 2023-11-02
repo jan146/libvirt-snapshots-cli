@@ -115,19 +115,20 @@ def menuSnapshots(domain: domainType, snapshots: list[snapshotType] = []) -> sna
 	else:
 		return snapshots[userChoice]
 
-def findRoot(snapshots: list[snapshotType]) -> snapshotType|None:
-	children: set[libvirt.virDomainSnapshot] = set()
+def findRoots(snapshots: list[snapshotType]) -> set[snapshotType]:
+	children: set[str] = set()
+	roots: set[snapshotType] = set()
 	for snapshot in snapshots:
-		children.union(snapshot.listAllChildren())
+		children = children.union([c.getName() for c in snapshot.listAllChildren()])
 	for snapshot in snapshots:
-		if snapshot not in children:
-			return snapshot
-	return None
+		if snapshot.getName() not in children:
+			roots.add(snapshot)
+	return roots
 
 def actionList(domain: domainType):
 	for (flags, typeStr) in [(libvirt.VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL, "External"), (libvirt.VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL, "Internal")]:
 		snapshots: list[snapshotType] = domain.listAllSnapshots(flags=flags)
-		root: snapshotType|None = findRoot(snapshots)
+		roots: set[snapshotType] = findRoots(snapshots)
 		print()
 		print("{:s}: ".format(typeStr))
 		print(" Current |    Name    |   Parent   ")
@@ -135,7 +136,7 @@ def actionList(domain: domainType):
 		for snapshot in snapshots:
 			current: str = "*" if snapshot.isCurrent() else " "
 			name: str = snapshot.getName()
-			parent: str = snapshot.getParent().getName() if snapshot is not root else "    -     "
+			parent: str = snapshot.getParent().getName() if snapshot not in roots else "    -     "
 			print("    {:1s}    | {:10s} | {:10s} ".format(current, name, parent))
 
 def actionCreate(domain: domainType):
